@@ -1,0 +1,33 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>المستمع</title>
+<link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#0e7490"><link rel="icon" href="icon-192.png"><link rel="stylesheet" href="style.css"></head><body><main>
+<h1>الاستماع</h1>
+<input id="code" inputmode="numeric" maxlength="6" placeholder="------" aria-label="الرمز المكون من 6 أرقام">
+<button id="join">اتصال</button>
+<audio id="audio" controls hidden></audio>
+<p id="msg" role="status"></p>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const socket = io(); let pc, chain = Promise.resolve();
+$('join').onclick = () => socket.emit('join', $('code').value.trim(), (r) => {
+  $('msg').textContent = r.ok ? 'بانتظار موافقة صاحب الجهاز...' : 'الرمز غير صحيح.';
+});
+socket.on('denied', () => $('msg').textContent = 'تم رفض الطلب.');
+socket.on('ended', () => { $('msg').textContent = 'انتهى البث.'; $('audio').hidden = true; pc && pc.close(); });
+socket.on('signal', ({ from, data }) => {
+  chain = chain.then(async () => {
+    if (data.sdp) {
+      pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      pc.ontrack = (e) => {
+        $('audio').srcObject = e.streams[0]; $('audio').hidden = false;
+        $('audio').play().catch(() => {}); $('msg').textContent = 'متصل. البث الصوتي يعمل.';
+      };
+      pc.onicecandidate = (e) => e.candidate && socket.emit('signal', { to: from, data: { ice: e.candidate } });
+      await pc.setRemoteDescription(data.sdp);
+      await pc.setLocalDescription(await pc.createAnswer());
+      socket.emit('signal', { to: from, data: { sdp: pc.localDescription } });
+    } else if (data.ice && pc) await pc.addIceCandidate(data.ice);
+  }).catch(console.error);
+});
+</script><script src="/pwa.js"></script></main></body></html>

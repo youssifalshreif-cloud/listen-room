@@ -1,0 +1,41 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>المرسل</title>
+<link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#0e7490"><link rel="icon" href="icon-192.png"><link rel="stylesheet" href="style.css"></head><body><main>
+<h1>إرسال الصوت</h1>
+<section id="s1"><button id="start">إنشاء رمز</button></section>
+<section id="s2" hidden>
+  <p>أعطِ هذا الرمز للجهاز المستمع:</p><div class="code" id="code"></div>
+</section>
+<section id="ask" hidden>
+  <p>جهاز يطلب الاستماع إلى الميكروفون. هل تسمح؟</p>
+  <div class="row"><button id="allow">سماح</button><button id="deny" class="alt">رفض</button></div>
+</section>
+<section id="live" hidden><p class="live">● الميكروفون يبث الآن</p><button id="stop">إيقاف البث</button></section>
+<p id="msg" role="status"></p>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const socket = io(); let pc, stream, listenerId;
+$('start').onclick = () => socket.emit('create', (code) => {
+  $('code').textContent = code; $('s1').hidden = true; $('s2').hidden = false;
+});
+socket.on('request', (id) => { listenerId = id; $('ask').hidden = false; });
+$('deny').onclick = () => { socket.emit('deny', listenerId); $('ask').hidden = true; };
+$('allow').onclick = async () => {
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { $('msg').textContent = 'لم يُسمح باستخدام الميكروفون. تأكد من الصلاحية ومن استخدام HTTPS.'; return; }
+  $('ask').hidden = true;
+  socket.emit('approve', listenerId);
+  pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+  pc.onicecandidate = (e) => e.candidate && socket.emit('signal', { to: listenerId, data: { ice: e.candidate } });
+  await pc.setLocalDescription(await pc.createOffer());
+  socket.emit('signal', { to: listenerId, data: { sdp: pc.localDescription } });
+  $('live').hidden = false;
+};
+socket.on('signal', async ({ data }) => {
+  if (data.sdp) await pc.setRemoteDescription(data.sdp);
+  if (data.ice) await pc.addIceCandidate(data.ice);
+});
+$('stop').onclick = () => { stream && stream.getTracks().forEach((t) => t.stop()); pc && pc.close(); location.reload(); };
+</script><script src="/pwa.js"></script></main></body></html>
